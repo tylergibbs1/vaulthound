@@ -1,0 +1,28 @@
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Xcode generated (we regenerate via xcodegen)
+Vaulthound.xcodeproj/
+
+# App data
+*.store
+*.store-shm
+*.store-wal
