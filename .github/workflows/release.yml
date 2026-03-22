@@ -37,7 +37,7 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Build CLI (Release, universal)
+      - name: Build CLI (Release)
         run: |
           xcodebuild -project Vaulthound.xcodeproj \
             -scheme vaulthound-cli \
@@ -101,41 +101,42 @@ jobs:
             ### SHA256
             - App: `${{ steps.sha.outputs.app_sha }}`
             - CLI: `${{ steps.sha.outputs.cli_sha }}`
+
+            ### Update Homebrew tap
+            Run this after the release to update the tap formulas:
+            ```bash
+            cd /path/to/homebrew-tap
+            sed -i '' 's/sha256 ".*"/sha256 "${{ steps.sha.outputs.app_sha }}"/' Casks/vaulthound.rb
+            sed -i '' 's/version ".*"/version "${{ steps.version.outputs.version }}"/' Casks/vaulthound.rb
+            sed -i '' 's/sha256 ".*"/sha256 "${{ steps.sha.outputs.cli_sha }}"/' Formula/vaulthound-cli.rb
+            sed -i '' 's/version ".*"/version "${{ steps.version.outputs.version }}"/' Formula/vaulthound-cli.rb
+            git commit -am "Update to v${{ steps.version.outputs.version }}" && git push
+            ```
           files: |
             dist/Vaulthound-macOS.zip
             dist/vaulthound-cli-macOS.tar.gz
           draft: false
           prerelease: false
 
-  update-homebrew:
-    name: Update Homebrew Tap
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Get version and SHAs
-        id: info
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-          # Download the release artifacts to compute SHA
-          curl -sL "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Vaulthound-macOS.zip" -o app.zip
-          curl -sL "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/vaulthound-cli-macOS.tar.gz" -o cli.tar.gz
-
-          echo "app_sha=$(sha256sum app.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "cli_sha=$(sha256sum cli.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-
       - name: Update Homebrew tap
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.TAP_GITHUB_TOKEN }}
-          repository: tylergibbs1/homebrew-tap
-          event-type: update-formula
-          client-payload: |
-            {
-              "version": "${{ steps.info.outputs.version }}",
-              "app_sha": "${{ steps.info.outputs.app_sha }}",
-              "cli_sha": "${{ steps.info.outputs.cli_sha }}"
-            }
+        if: ${{ secrets.TAP_GITHUB_TOKEN != '' }}
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          APP_SHA: ${{ steps.sha.outputs.app_sha }}
+          CLI_SHA: ${{ steps.sha.outputs.cli_sha }}
+        run: |
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/tylergibbs1/homebrew-tap.git /tmp/tap
+          cd /tmp/tap
+
+          sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Casks/vaulthound.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"${APP_SHA}\"/" Casks/vaulthound.rb
+
+          sed -i '' "s|url \".*\"|url \"https://github.com/tylergibbs1/vaulthound/releases/download/v${VERSION}/vaulthound-cli-macOS.tar.gz\"|" Formula/vaulthound-cli.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"${CLI_SHA}\"/" Formula/vaulthound-cli.rb
+          sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Formula/vaulthound-cli.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet || (git commit -m "Update to v${VERSION}" && git push)
