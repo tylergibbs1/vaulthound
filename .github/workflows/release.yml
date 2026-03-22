@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Run tests
+        run: |
+          cd VaulthoundKit
+          swift test
+
+      - name: Build app (Release)
+        run: |
+          xcodebuild -project Vaulthound.xcodeproj \
+            -scheme Vaulthound \
+            -configuration Release \
+            -archivePath build/Vaulthound.xcarchive \
+            archive \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build CLI (Release, universal)
+        run: |
+          xcodebuild -project Vaulthound.xcodeproj \
+            -scheme vaulthound-cli \
+            -configuration Release \
+            -derivedDataPath build/cli \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package app
+        run: |
+          mkdir -p dist
+          cp -R build/Vaulthound.xcarchive/Products/Applications/Vaulthound.app dist/
+          cd dist
+          zip -r -y Vaulthound-macOS.zip Vaulthound.app
+
+      - name: Package CLI
+        run: |
+          mkdir -p dist
+          cp build/cli/Build/Products/Release/vaulthound dist/
+          cd dist
+          tar czf vaulthound-cli-macOS.tar.gz vaulthound
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          echo "app_sha=$(shasum -a 256 dist/Vaulthound-macOS.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "cli_sha=$(shasum -a 256 dist/vaulthound-cli-macOS.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Vaulthound v${{ steps.version.outputs.version }}
+          body: |
+            ## Vaulthound v${{ steps.version.outputs.version }}
+
+            ### Install
+
+            **Homebrew (recommended):**
+            ```bash
+            brew tap tylergibbs1/tap
+            brew install --cask vaulthound
+            ```
+
+            **CLI only:**
+            ```bash
+            brew tap tylergibbs1/tap
+            brew install vaulthound-cli
+            ```
+
+            **Manual download:**
+            - `Vaulthound-macOS.zip` — the app (drag to /Applications)
+            - `vaulthound-cli-macOS.tar.gz` — CLI binary only
+
+            > First launch: right-click the app → Open to bypass Gatekeeper (not notarized yet).
+
+            ### SHA256
+            - App: `${{ steps.sha.outputs.app_sha }}`
+            - CLI: `${{ steps.sha.outputs.cli_sha }}`
+          files: |
+            dist/Vaulthound-macOS.zip
+            dist/vaulthound-cli-macOS.tar.gz
+          draft: false
+          prerelease: false
+
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version and SHAs
+        id: info
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Download the release artifacts to compute SHA
+          curl -sL "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Vaulthound-macOS.zip" -o app.zip
+          curl -sL "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/vaulthound-cli-macOS.tar.gz" -o cli.tar.gz
+
+          echo "app_sha=$(sha256sum app.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "cli_sha=$(sha256sum cli.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew tap
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          repository: tylergibbs1/homebrew-tap
+          event-type: update-formula
+          client-payload: |
+            {
+              "version": "${{ steps.info.outputs.version }}",
+              "app_sha": "${{ steps.info.outputs.app_sha }}",
+              "cli_sha": "${{ steps.info.outputs.cli_sha }}"
+            }
