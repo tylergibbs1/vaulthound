@@ -4,7 +4,13 @@
 
 Vaulthound sits between your projects and your tools, always knowing which environment you're in and making sure the right variables reach the right processes. It manages `.env` files, stores secrets in Keychain with Touch ID, injects variables into any process, and has a built-in API client — all in a native SwiftUI app.
 
-![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue) ![Swift 6](https://img.shields.io/badge/Swift-6-orange) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![CI](https://github.com/tylergibbs1/vaulthound/actions/workflows/ci.yml/badge.svg)](https://github.com/tylergibbs1/vaulthound/actions/workflows/ci.yml)
+
+## Quick start
+
+Download `Vaulthound-macOS.zip` (the app) and `vaulthound-cli-macOS.tar.gz` (the CLI) from the [latest release](https://github.com/tylergibbs1/vaulthound/releases/latest), or [build from source](#build-from-source).
+
+On first launch, sample projects ("acme-web" and "weather-app") are seeded with realistic environments, variables, and API requests so you can explore the app immediately.
 
 ## Why
 
@@ -13,6 +19,43 @@ Every developer on macOS has the same invisible mess: `.env` files scattered acr
 No tool owns the `.env` file. Doppler and Infisical are cloud dashboards. direnv is a shell hook with no UI. 1Password CLI stores secrets but doesn't understand projects. Yaak and Bruno are API clients that encrypt secrets for their own use but don't manage your broader environment.
 
 Vaulthound is the missing layer.
+
+## How it works
+
+```
+┌──────────────────────────────────────────────────┐
+│ macOS                                            │
+│  ┌─────────────┐  ┌──────────────────────────┐   │
+│  │ Menu Bar UI │  │ Main Window (SwiftUI)    │   │
+│  └──────┬──────┘  └────────────┬─────────────┘   │
+│         └───────────┬──────────┘                 │
+│                     │ XPC                        │
+│              ┌──────┴──────┐                     │
+│              │   Daemon    │                     │
+│              │  - FSEvents │                     │
+│              │  - Env Index│                     │
+│              │  - Keychain │                     │
+│              │  - Socket   │                     │
+│              └──────┬──────┘                     │
+│                     │ Unix Socket                │
+│         ┌───────────┼───────────┐                │
+│    ┌────┴────┐ ┌────┴────┐ ┌───┴─────┐          │
+│    │  CLI    │ │  Shell  │ │   IDE   │          │
+│    │  exec   │ │  Hook   │ │  .env   │          │
+│    └─────────┘ └─────────┘ └─────────┘          │
+└──────────────────────────────────────────────────┘
+```
+
+| Layer | Technology |
+|-------|-----------|
+| UI | SwiftUI (macOS 14+) |
+| Navigation | Three-column NavigationSplitView |
+| Data | SwiftData |
+| Secrets | Security framework (Keychain) + LocalAuthentication (Touch ID) |
+| Networking | Foundation URLSession |
+| CLI | Swift Argument Parser |
+| File watching | FSEvents via XPC daemon |
+| Menu bar | MenuBarExtra (.window style) |
 
 ## Features
 
@@ -57,67 +100,9 @@ Vaulthound is the missing layer.
 - **Dark mode** — respects system appearance, accent color, Dynamic Type
 - **Menu bar** — native `MenuBarExtra` with quick copy
 
-## Architecture
+## CLI usage
 
-```
-┌──────────────────────────────────────────────────┐
-│ macOS                                            │
-│  ┌─────────────┐  ┌──────────────────────────┐   │
-│  │ Menu Bar UI │  │ Main Window (SwiftUI)    │   │
-│  └──────┬──────┘  └────────────┬─────────────┘   │
-│         └───────────┬──────────┘                 │
-│                     │ XPC                        │
-│              ┌──────┴──────┐                     │
-│              │   Daemon    │                     │
-│              │  - FSEvents │                     │
-│              │  - Env Index│                     │
-│              │  - Keychain │                     │
-│              │  - Socket   │                     │
-│              └──────┬──────┘                     │
-│                     │ Unix Socket                │
-│         ┌───────────┼───────────┐                │
-│    ┌────┴────┐ ┌────┴────┐ ┌───┴─────┐          │
-│    │  CLI    │ │  Shell  │ │   IDE   │          │
-│    │  exec   │ │  Hook   │ │  .env   │          │
-│    └─────────┘ └─────────┘ └─────────┘          │
-└──────────────────────────────────────────────────┘
-```
-
-| Layer | Technology |
-|-------|-----------|
-| UI | SwiftUI (macOS 14+) |
-| Navigation | Three-column NavigationSplitView |
-| Data | SwiftData |
-| Secrets | Security framework (Keychain) + LocalAuthentication (Touch ID) |
-| Networking | Foundation URLSession |
-| CLI | Swift Argument Parser |
-| File watching | FSEvents via XPC daemon |
-| Menu bar | MenuBarExtra (.window style) |
-
-## Getting Started
-
-### Prerequisites
-
-- macOS 14.0+
-- Xcode 16.0+
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
-
-### Build
-
-```bash
-git clone https://github.com/tylergibbs/vaulthound.git
-cd vaulthound
-xcodegen generate
-open Vaulthound.xcodeproj
-```
-
-Build and run the **Vaulthound** scheme (⌘R).
-
-On first launch, sample projects ("acme-web" and "weather-app") are seeded with realistic environments, variables, and API requests so you can explore the app immediately.
-
-### CLI
-
-Build the **vaulthound-cli** scheme, then:
+Install the CLI from a release, or build the **vaulthound-cli** scheme, then:
 
 ```bash
 # Inject environment into a command
@@ -136,7 +121,37 @@ vaulthound env --project ~/Developer/myapp --export
 eval "$(vaulthound hook zsh)"   # or bash, fish
 ```
 
-## Project Structure
+## Build from source
+
+### Prerequisites
+
+- macOS 14.0+
+- Xcode 16.0+
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
+
+### Build
+
+```bash
+git clone https://github.com/tylergibbs1/vaulthound.git
+cd vaulthound
+xcodegen generate
+open Vaulthound.xcodeproj
+```
+
+Build and run the **Vaulthound** scheme (⌘R).
+
+## Development
+
+### Tests
+
+```bash
+cd VaulthoundKit
+swift test
+```
+
+79 tests across 10 suites covering: `.env` parsing, secret detection, variable interpolation, cURL parsing, Postman import, route discovery (Next.js/SvelteKit/Nuxt), project file management, cookie handling, Keychain operations, and secure references.
+
+### Project structure
 
 ```
 vaulthound/
@@ -159,15 +174,6 @@ vaulthound/
         └── VaulthoundSecurity/    # Keychain + Touch ID wrappers
 ```
 
-## Tests
-
-```bash
-cd VaulthoundKit
-swift test
-```
-
-79 tests across 10 suites covering: `.env` parsing, secret detection, variable interpolation, cURL parsing, Postman import, route discovery (Next.js/SvelteKit/Nuxt), project file management, cookie handling, Keychain operations, and secure references.
-
 ## Roadmap
 
 - [ ] **V1.1** — Shell hook (direnv-style), 1Password CLI integration, AWS Secrets Manager, `.env.example` missing value detection
@@ -176,4 +182,4 @@ swift test
 
 ## License
 
-MIT
+[MIT](LICENSE)
